@@ -1,4 +1,4 @@
-"""Manuscript metrics: macro F1, probability AUC and available-vessel aggregation."""
+"""Classification metrics: macro F1, probability AUC and available-vessel aggregation."""
 import numpy as np
 import pandas as pd
 from sklearn.metrics import (accuracy_score, cohen_kappa_score, confusion_matrix,

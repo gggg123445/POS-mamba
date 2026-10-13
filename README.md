@@ -2,9 +2,9 @@
 
 POS-Mamba grades coronary diameter stenosis from ordered, multi-angle CPR projections. It combines a **Spatial-Angular Continuous Representation (SACR)**, MambaVision spatial semantics, a Haar frequency branch, a pixel-wise semantic alignment gate, six clinical-prior task heads, and probabilistic ordinal supervision.
 
-[中文说明](docs/README_zh.md) · [Paper alignment and changes](docs/PAPER_ALIGNMENT.md) · [Third-party licenses](THIRD_PARTY_NOTICES.md)
+[中文说明](docs/README_zh.md) · [Third-party licenses](THIRD_PARTY_NOTICES.md)
 
-This release aligns the supplied research training script with the current manuscript's method and protocol. It changes architecture and supervision relative to that script. Original checkpoints are **not compatible**. This repository does not claim that these changes reproduce the manuscript's existing numerical results; that requires retraining and evaluation with the original private cohort and exact partitions. No clinical images, patient identifiers, trained checkpoints, or private experiment outputs are distributed.
+The repository provides model definitions, preprocessing, training, evaluation, and synthetic examples. Clinical images, patient identifiers, trained checkpoints, and private experiment outputs are not included.
 
 ## Installation
 
@@ -18,7 +18,7 @@ python -m pip install mamba-ssm==2.2.4 --no-build-isolation
 python -m pos_mamba --help
 ```
 
-The dependency version follows [NVIDIA's upstream requirements](https://github.com/NVlabs/MambaVision/blob/main/requirements.txt). Extension compatibility depends on the CUDA/PyTorch/compiler combination; the local checks described below did not test the extension. The backbone is downloaded through the [official Hugging Face model](https://huggingface.co/nvidia/MambaVision-T-1K). Its custom Python code is loaded with `trust_remote_code=True`. For a reproducible run, pass `--model_revision <reviewed-model-commit>` to pin both the weights and remote code. No alternative download mirror is imposed.
+The dependency version follows [NVIDIA's upstream requirements](https://github.com/NVlabs/MambaVision/blob/main/requirements.txt). Extension compatibility depends on the CUDA/PyTorch/compiler combination. The backbone is downloaded through the [official Hugging Face model](https://huggingface.co/nvidia/MambaVision-T-1K). Its custom Python code is loaded with `trust_remote_code=True`. For a reproducible run, pass `--model_revision <reviewed-model-commit>` to pin both the weights and remote code.
 
 ## Input data
 
@@ -49,17 +49,17 @@ PNG/JPEG files are ordered by the numeric `view` suffix. `--scan_type_filter cpr
 
 ```bash
 python -m pos_mamba \
-  --csv /path/to/private/metadata.csv \
-  --image_root /path/to/private/images \
+  --csv /path/to/metadata.csv \
+  --image_root /path/to/images \
   --group_col patient_id \
-  --test_groups_file /path/to/private/fixed_holdout.json \
-  --save_path outputs/paper_run \
+  --test_groups_file /path/to/fixed_holdout.json \
+  --save_path outputs/run1 \
   --gpu 0
 ```
 
-The fixed holdout file has the format `{"test_groups": ["SYN00001", "SYN00002"]}`. Unknown IDs fail instead of silently changing the cohort. Use the **same original holdout and development partitions** to compare with archived results. If the file is omitted, one approximately 20% patient-stratified holdout is generated using seed 42 and reused by all development splits. This new partition does not reconstruct the manuscript's exact 181-patient/518-vessel holdout.
+The fixed holdout file has the format `{"test_groups": ["SYN00001", "SYN00002"]}`. Unknown IDs fail instead of silently changing the cohort. Reuse the same holdout and development partitions when comparing experiments. If the file is omitted, one approximately 20% patient-stratified holdout is generated using seed 42 and reused by all development splits.
 
-Three stratified development partitions are used by default, with each held-out development fold serving as validation. `--val_ratio` optionally moves extra training groups into validation; the default is zero. To replay exact archived partitions, also pass `--development_splits_file /path/to/private/development_groups.json`, formatted as `{"splits": [{"train_groups": ["..."], "val_groups": ["..."]}, ...]}`. The number of entries must match `--n_splits`; every entry must partition the entire development cohort and exclude the holdout. All checkpoints and early stopping use validation T1 macro-F1 by default. After every development split finishes, the primary split is selected by its best-checkpoint validation T1 macro-F1, with the earliest split winning a tie. `primary_selection.json` is saved **before holdout inference**. The selected split is not hardcoded to split 2; that was an observed outcome of the manuscript's runs.
+Three stratified development partitions are used by default, with each held-out development fold serving as validation. `--val_ratio` optionally moves extra training groups into validation; the default is zero. To use predefined partitions, pass `--development_splits_file /path/to/development_groups.json`, formatted as `{"splits": [{"train_groups": ["..."], "val_groups": ["..."]}, ...]}`. The number of entries must match `--n_splits`; every entry must partition the entire development cohort and exclude the holdout. All checkpoints and early stopping use validation T1 macro-F1 by default. After every development split finishes, the primary split is selected by its best-checkpoint validation T1 macro-F1, with the earliest split winning a tie. `primary_selection.json` is saved **before holdout inference**.
 
 | Setting | Default |
 |---|---|
@@ -72,7 +72,7 @@ Three stratified development partitions are used by default, with each held-out 
 | Early stopping / seed | 20 epochs / 42 |
 | Probabilistic supervision | Gaussian sigma 10 percentage points, weight 0.9 |
 
-Batch collation center-crops each long image to the smallest height and width in that batch. It introduces no padding, but can remove peripheral content from longer images. Keep batch size/order consistent when comparing outputs. Height resizing flags remain available as explicit preprocessing alternatives and are recorded in run metadata. This entry point trains on one logical GPU per process; the paper's two-RTX-5090 hardware description is not a claim of distributed training support in this release.
+Batch collation center-crops each long image to the smallest height and width in that batch. It introduces no padding, but can remove peripheral content from longer images. Keep batch size/order consistent when comparing outputs. Height resizing flags are available as explicit preprocessing alternatives and are recorded in run metadata. Training uses one selected GPU per process.
 
 Task definitions:
 
@@ -87,7 +87,7 @@ Task definitions:
 
 T4–T6 are trained and evaluated on reference-defined eligible subsets. These scores describe conditional performance; the implementation does not route cases using predicted categories. CE/BCE losses are averaged within each eligible subset and summed. Empty tasks contribute zero. The joint objective is `0.1 * main_loss + 0.9 * histogram_soft_CE`.
 
-Gaussian targets integrate probability between histogram edges, with both exterior tails absorbed into the endpoint bins. The six-bin auxiliary head retains the supplied script's integer-percentage convention: edges `[0, 0.5, 24.5, 49.5, 69.5, 99.5, 100.5]`. Class labels still use the clinical cutoffs stated above. Sigma is a fixed supervision hyperparameter; auxiliary probabilities are not calibrated case-specific uncertainty estimates. `--hl_bins_mode uniform101` is an alternative, not the default.
+Gaussian targets integrate probability between histogram edges, with both exterior tails absorbed into the endpoint bins. The six-bin auxiliary head uses histogram edges `[0, 0.5, 24.5, 49.5, 69.5, 99.5, 100.5]` for integer percentages. Class labels use the clinical cutoffs stated above. Sigma is a fixed supervision hyperparameter; auxiliary probabilities are not calibrated case-specific uncertainty estimates. `--hl_bins_mode uniform101` selects an alternative 101-bin histogram.
 
 ## Outputs and checks
 
@@ -101,9 +101,9 @@ python -m pytest -q
 python examples/make_synthetic_data.py --output data/synthetic
 ```
 
-Tests cover spatial-gate broadcasting, Gaussian endpoint masses, conditional loss masks, gradients in both branches, SACR orientation, macro-F1/AUC, patient aggregation, and a complete three-split synthetic training/evaluation/export run. The backbone is replaced by a tiny convolution **only in tests**, so they run without model downloads or Mamba CUDA kernels. Local checks used Python 3.9.20, torch 2.8.0+cu126, torchvision 0.23.0+cu126, transformers 4.47.1, sklearn 1.6.1, and numpy 2.0.2. They do not establish full-backbone training compatibility or reproduce the paper's scores.
+Tests cover spatial-gate broadcasting, Gaussian endpoint masses, conditional loss masks, gradients in both branches, SACR orientation, macro-F1/AUC, patient aggregation, and a complete three-split synthetic training/evaluation/export run. Tests use a small convolutional backbone and synthetic data to run on CPU without model downloads or Mamba CUDA kernels. Full MambaVision training requires the CUDA extension described above.
 
-The old long training filename remains as a launcher. Core code is separated into `data`, `models`, `losses`, `engine`, `metrics`, `validation`, and `cli` modules. Generated data, identifiers, manifests, weights, and outputs are ignored by Git.
+Training is available through `python -m pos_mamba` or the standalone training script. Core code is separated into `data`, `models`, `losses`, `engine`, `metrics`, `validation`, and `cli` modules. Generated data, identifiers, manifests, weights, and outputs are ignored by Git.
 
 ## License
 

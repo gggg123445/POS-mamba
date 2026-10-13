@@ -22,6 +22,7 @@ runs/
 *.log
 .env
 .env.*
+docs/PAPER_ALIGNMENT.md
 # Python/build/editor artifacts
 __pycache__/
 *.py[cod]

@@ -211,7 +211,7 @@ class HaarWaveletFreqBranchV2(HaarWaveletFreqBranch):
 
 
 class POSMamba(nn.Module):
-    """Paper-aligned default model; alternative fusion modes support ablations."""
+    """Spatial dual-branch model; alternative fusion modes support ablations."""
 
     def __init__(
         self, model_name='nvidia/MambaVision-T-1K', feature_proj_dim=512,
@@ -260,7 +260,7 @@ class POSMamba(nn.Module):
                     nn.BatchNorm2d(self.main_spatial_dim), nn.GELU())
         self.towers = TaskTowers6(in_dim=self.feat_dim, hidden=towers_hidden)
         if self.use_hlgauss:
-            # Half-integer edges retain the original integer-percentage convention.
+            # Half-integer edges define histogram bins for integer percentages.
             edges = (torch.linspace(-0.5, 100.5, 102) if hl_bins_mode == 'uniform101'
                      else torch.tensor([0., 0.5, 24.5, 49.5, 69.5, 99.5, 100.5]))
             self.register_buffer('hl_edges', edges)
@@ -314,6 +314,6 @@ class POSMamba(nn.Module):
         return (tasks, self.hl_head(feature)) if self.use_hlgauss else tasks
 
 
-# Original public names remain importable; original checkpoints need retraining.
+# Additional model aliases supported by the standalone training entry point.
 MambaVisionLongImage6TaskV2 = POSMamba
 MambaVisionLongImage6Task = POSMamba
