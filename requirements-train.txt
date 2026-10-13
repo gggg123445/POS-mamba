@@ -1,0 +1,3 @@
+# NVIDIA MambaVision upstream uses mamba-ssm 2.2.4 (CUDA extension).
+-r requirements.txt
+mamba-ssm==2.2.4
